@@ -57,7 +57,7 @@
 <script>
     let peer, connections = [], myName = "";
     let isHost = false;
-    let userList = []; // 房主维护的名单：[{id: 'xxx', name: 'xxx'}, ...]
+    let userList = []; 
     
     const urlParams = new URLSearchParams(window.location.search);
     const roomID = urlParams.get('room');
@@ -94,6 +94,7 @@
                 };
             } else {
                 isHost = false;
+                // 成员连接房主
                 const conn = peer.connect(roomID, { metadata: { name: myName } });
                 handleConnection(conn);
             }
@@ -106,40 +107,42 @@
 
     function handleConnection(conn) {
         conn.on('open', () => {
-            // 房主逻辑：新成员连入
             if (isHost) {
-                // 检查是否已存在（避免重复记录）
-                if (!userList.find(u => u.id === conn.peer)) {
-                    userList.push({ id: conn.peer, name: conn.metadata.name });
+                // 房主：记录新连接
+                if (!connections.find(c => c.peer === conn.peer)) {
                     connections.push(conn);
+                    userList.push({ id: conn.peer, name: conn.metadata.name || "新成员" });
                 }
-                syncToAll();
+                // 收到连接后，给对方一点时间准备，然后同步名单
+                setTimeout(() => syncToAll(), 500);
+            } else {
+                // 成员：连上房主后，主动要一份名单
+                connections = [conn]; 
+                setTimeout(() => conn.send({ type: 'REQ_SYNC' }), 500);
             }
             
-            appendLog('sys', `${conn.metadata.name || "新朋友"} 进入了房间`);
+            appendLog('sys', `${conn.metadata.name || "新朋友"} 已连线`);
 
             conn.on('data', (data) => {
+                // 房主处理成员请求同步的信号
+                if (isHost && data.type === 'REQ_SYNC') {
+                    syncToAll();
+                    return;
+                }
+                // 成员处理房主发来的同步名单
                 if (data.type === 'LIST_UPDATE') {
                     userList = data.list;
+                    customRoomName = data.roomName || customRoomName;
                     updateUI();
                     return;
                 }
+                // 转发聊天消息
                 if (isHost) broadcast({ name: data.name, text: data.text }, conn);
                 appendLog('peer', data.text, data.name);
             });
 
-            // 监听断开连接
-            conn.on('close', () => {
-                removeUser(conn.peer);
-            });
-            
-            // 某些浏览器不触发 close，通过此方式辅助检查
-            const checkInterval = setInterval(() => {
-                if (!conn.open) {
-                    removeUser(conn.peer);
-                    clearInterval(checkInterval);
-                }
-            }, 3000);
+            conn.on('close', () => removeUser(conn.peer));
+            conn.on('error', () => removeUser(conn.peer));
         });
     }
 
@@ -147,10 +150,10 @@
         if (isHost) {
             const index = userList.findIndex(u => u.id === peerId);
             if (index !== -1) {
-                const userName = userList[index].name;
+                const uName = userList[index].name;
                 userList.splice(index, 1);
                 connections = connections.filter(c => c.peer !== peerId);
-                appendLog('sys', `${userName} 离开了房间`);
+                appendLog('sys', `${uName} 离开了`);
                 syncToAll();
             }
         }
@@ -159,7 +162,11 @@
     function syncToAll() {
         if (isHost) {
             updateUI();
-            broadcast({ type: 'LIST_UPDATE', list: userList });
+            broadcast({ 
+                type: 'LIST_UPDATE', 
+                list: userList, 
+                roomName: customRoomName 
+            });
         }
     }
 
@@ -188,9 +195,7 @@
         if (isHost) {
             broadcast(data);
         } else {
-            // 成员只发给房主，由房主转发
-            const hostConn = connections.find(c => c.peer === roomID);
-            if (hostConn) hostConn.send(data);
+            if (connections[0] && connections[0].open) connections[0].send(data);
         }
         appendLog('me', text, myName);
         input.value = '';
@@ -203,7 +208,7 @@
         if (type === 'sys') {
             div.innerText = text;
         } else {
-            div.innerHTML = `<div class="msg-name">${name}</div>${text}`;
+            div.innerHTML = `<div class="msg-name">${name || "未知"}</div>${text}`;
         }
         box.appendChild(div);
         box.scrollTop = box.scrollHeight;
@@ -211,3 +216,4 @@
 </script>
 </body>
 </html>
+
