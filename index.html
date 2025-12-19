@@ -79,14 +79,16 @@
     }
 
     function initPeer() {
-        peer = new Peer();
+        // 房主生成一个 4 位随机数作为 ID (注意：这在公共服务器上极易冲突，仅供玩耍)
+        const shortId = Math.random().toString(36).substr(2, 4);
+        peer = new Peer(shortId);
 
         peer.on('open', (id) => {
             if (!roomID) {
                 isHost = true;
                 userList = [{ id: id, name: myName + " (房主)" }];
                 updateUI();
-                const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${id}&roomName=${encodeURIComponent(customRoomName)}`;
+                const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
                 document.getElementById('share-url').innerText = "点击复制邀请链接";
                 document.getElementById('share-url').onclick = () => {
                     navigator.clipboard.writeText(inviteUrl);
@@ -216,4 +218,5 @@
 </script>
 </body>
 </html>
+
 
