@@ -3,54 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P 多人聊天室 - 最终增强版</title>
+    <title>P2P 极客聊天室 - 增强版</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        :root { --primary: #007bff; --bg: #f4f7f6; }
-        body { font-family: sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; margin: 0; }
-        .container { background: white; width: 100%; max-width: 600px; padding: 20px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        :root { --primary: #007bff; --bg: #f0f2f5; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; margin: 0; }
+        .container { background: white; width: 100%; max-width: 600px; height: 90vh; display: flex; flex-direction: column; padding: 20px; border-radius: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.12); overflow: hidden; }
         
         /* 在线名单样式 */
-        .online-list { font-size: 12px; color: #666; background: #fdfdfd; padding: 8px; border-radius: 8px; border: 1px dashed #ddd; margin: 10px 0; line-height: 1.6; }
-        .user-tag { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin-right: 5px; color: var(--primary); }
+        .online-list { font-size: 12px; color: #666; background: #f8f9fa; padding: 10px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #eee; }
+        .user-tag { display: inline-block; padding: 3px 10px; border-radius: 15px; margin: 2px 4px; color: white; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,0.1); }
 
-        #chat-box { height: 350px; border: 1px solid #eee; border-radius: 10px; overflow-y: auto; padding: 15px; margin: 15px 0; background: #fafafa; display: flex; flex-direction: column; }
-        .msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; font-size: 14px; position: relative; max-width: 85%; }
-        .msg-name { font-size: 11px; color: #888; margin-bottom: 2px; }
-        .msg.me { background: var(--primary); color: white; align-self: flex-end; }
-        .msg.peer { background: #e9e9eb; color: #333; align-self: flex-start; }
-        .msg.sys { background: transparent; color: #aaa; font-size: 12px; align-self: center; text-align: center; }
+        #chat-box { flex: 1; border: none; overflow-y: auto; padding: 10px; margin-bottom: 15px; background: #fff; display: flex; flex-direction: column; gap: 12px; }
         
-        .input-area { display: flex; gap: 8px; }
-        input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
-        button { padding: 10px 15px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; }
-        .setup-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); display: flex; align-items: center; justify-content: center; z-index: 100; }
-        .setup-box { text-align: center; padding: 30px; background: white; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
-        #share-url { font-size: 12px; color: var(--primary); cursor: pointer; display: block; margin-top: 5px; }
+        /* 气泡美化 */
+        .msg { position: relative; max-width: 75%; display: flex; flex-direction: column; }
+        .msg-info { font-size: 11px; color: #999; margin-bottom: 3px; display: flex; gap: 8px; align-items: center; }
+        .msg-content { padding: 10px 14px; border-radius: 15px; font-size: 14px; line-height: 1.5; word-break: break-all; position: relative; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .msg-img { max-width: 100%; border-radius: 10px; margin-top: 5px; cursor: pointer; transition: transform 0.2s; }
+        .msg-img:hover { transform: scale(1.02); }
+        
+        .msg.me { align-self: flex-end; }
+        .msg.me .msg-info { justify-content: flex-end; }
+        .msg.me .msg-content { background: var(--primary); color: white; border-bottom-right-radius: 2px; }
+        
+        .msg.peer { align-self: flex-start; }
+        .msg.peer .msg-content { background: #f1f0f0; color: #222; border-bottom-left-radius: 2px; }
+        
+        .msg.sys { background: transparent; color: #bbb; font-size: 11px; align-self: center; text-align: center; max-width: 90%; }
+
+        /* 输入区 */
+        .input-area { display: flex; gap: 10px; padding-top: 15px; border-top: 1px solid #f0f0f0; align-items: center; }
+        input { flex: 1; padding: 12px 15px; border: 1px solid #eee; border-radius: 25px; outline: none; background: #f9f9f9; transition: 0.3s; }
+        input:focus { border-color: var(--primary); background: #fff; }
+        
+        .action-btn { background: #eee; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: 0.2s; }
+        .action-btn:hover { background: #e2e2e2; }
+        .send-btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 25px; cursor: pointer; font-weight: bold; }
+
+        .setup-overlay { position: fixed; inset: 0; background: white; display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .setup-box { width: 300px; text-align: center; }
+        #share-url { font-size: 11px; color: var(--primary); cursor: pointer; margin: 5px 0 15px; display: block; opacity: 0.7; }
     </style>
 </head>
 <body>
 
 <div id="setup-layer" class="setup-overlay">
     <div class="setup-box">
-        <h3 id="setup-title">创建或加入聊天室</h3>
-        <input type="text" id="user-name" placeholder="输入你的昵称..." style="margin-bottom: 10px; width: 200px;"><br>
-        <button onclick="startApp()">进入聊天室</button>
+        <h2 id="setup-title" style="margin-bottom: 25px;">P2P Chat</h2>
+        <input type="text" id="user-name" placeholder="设置你的昵称" style="width: 100%; box-sizing: border-box; margin-bottom: 15px; text-align: center;">
+        <button class="send-btn" style="width: 100%;" onclick="startApp()">开始聊天</button>
     </div>
 </div>
 
 <div class="container">
-    <h3 id="room-name-display" style="margin-bottom:5px;">正在初始化...</h3>
+    <h3 id="room-name-display" style="margin: 0 0 5px 0;">初始化中...</h3>
     <span id="share-url"></span>
     
-    <div class="online-list" id="online-list-box">
-        在线人员：等待连接...
-    </div>
+    <div class="online-list" id="online-list-box">在线人员加载中...</div>
 
     <div id="chat-box"></div>
+
     <div class="input-area">
-        <input type="text" id="msg-input" placeholder="聊点什么..." onkeypress="if(event.keyCode==13) sendMsg()">
-        <button onclick="sendMsg()">发送</button>
+        <input type="file" id="img-input" accept="image/*" style="display: none;" onchange="sendImg(this)">
+        <button class="action-btn" onclick="document.getElementById('img-input').click()">🖼️</button>
+        <input type="text" id="msg-input" placeholder="输入消息..." onkeypress="if(event.keyCode==13) sendMsg()">
+        <button class="send-btn" onclick="sendMsg()">发送</button>
     </div>
 </div>
 
@@ -58,7 +76,8 @@
     let peer, connections = [], myName = "";
     let isHost = false;
     let userList = []; 
-    
+    let myColor = "";
+
     const urlParams = new URLSearchParams(window.location.search);
     const roomID = urlParams.get('room');
     let customRoomName = urlParams.get('roomName') || "临时聊天室";
@@ -66,12 +85,19 @@
     document.getElementById('user-name').value = localStorage.getItem('p2p-nickname') || "";
     if (roomID) document.getElementById('setup-title').innerText = "加入聊天室";
 
+    // 根据字符串生成随机颜色（好看的低饱和度颜色）
+    function generateColor(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        const h = hash % 360;
+        return `hsl(${h}, 60%, 45%)`;
+    }
+
     function startApp() {
         myName = document.getElementById('user-name').value.trim() || "匿名者";
         localStorage.setItem('p2p-nickname', myName); 
-
         if (!roomID) {
-            const inputName = prompt("给你的聊天室起个名字吧：", customRoomName);
+            const inputName = prompt("聊天室名称：", customRoomName);
             if (inputName) customRoomName = inputName;
         }
         document.getElementById('setup-layer').style.display = 'none';
@@ -79,68 +105,56 @@
     }
 
     function initPeer() {
-        // 房主生成一个 4 位随机数作为 ID (注意：这在公共服务器上极易冲突，仅供玩耍)
-        const shortId = Math.random().toString(36).substr(2, 4);
-        peer = new Peer(shortId);
-
+        peer = new Peer();
         peer.on('open', (id) => {
+            myColor = generateColor(id);
             if (!roomID) {
                 isHost = true;
-                userList = [{ id: id, name: myName + " (房主)" }];
+                userList = [{ id: id, name: myName + " (房主)", color: myColor }];
                 updateUI();
                 const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
-                document.getElementById('share-url').innerText = "点击复制邀请链接";
+                document.getElementById('share-url').innerText = "🔗 点击复制邀请链接";
                 document.getElementById('share-url').onclick = () => {
                     navigator.clipboard.writeText(inviteUrl);
-                    alert("链接已复制！");
+                    alert("邀请链接已复制！");
                 };
             } else {
                 isHost = false;
-                // 成员连接房主
-                const conn = peer.connect(roomID, { metadata: { name: myName } });
+                const conn = peer.connect(roomID, { metadata: { name: myName, color: myColor } });
                 handleConnection(conn);
             }
         });
 
-        peer.on('connection', (conn) => {
-            handleConnection(conn);
-        });
+        peer.on('connection', (conn) => handleConnection(conn));
+        
+        window.onbeforeunload = () => { if (peer) peer.destroy(); };
     }
 
     function handleConnection(conn) {
         conn.on('open', () => {
             if (isHost) {
-                // 房主：记录新连接
                 if (!connections.find(c => c.peer === conn.peer)) {
                     connections.push(conn);
-                    userList.push({ id: conn.peer, name: conn.metadata.name || "新成员" });
+                    userList.push({ id: conn.peer, name: conn.metadata.name, color: conn.metadata.color });
                 }
-                // 收到连接后，给对方一点时间准备，然后同步名单
                 setTimeout(() => syncToAll(), 500);
             } else {
-                // 成员：连上房主后，主动要一份名单
                 connections = [conn]; 
                 setTimeout(() => conn.send({ type: 'REQ_SYNC' }), 500);
             }
             
-            appendLog('sys', `${conn.metadata.name || "新朋友"} 已连线`);
+            appendLog({ type: 'sys', text: `${conn.metadata.name || "新朋友"} 已连线` });
 
             conn.on('data', (data) => {
-                // 房主处理成员请求同步的信号
-                if (isHost && data.type === 'REQ_SYNC') {
-                    syncToAll();
-                    return;
-                }
-                // 成员处理房主发来的同步名单
+                if (isHost && data.type === 'REQ_SYNC') { syncToAll(); return; }
                 if (data.type === 'LIST_UPDATE') {
                     userList = data.list;
                     customRoomName = data.roomName || customRoomName;
                     updateUI();
                     return;
                 }
-                // 转发聊天消息
-                if (isHost) broadcast({ name: data.name, text: data.text }, conn);
-                appendLog('peer', data.text, data.name);
+                if (isHost) broadcast(data, conn);
+                appendLog(data, 'peer');
             });
 
             conn.on('close', () => removeUser(conn.peer));
@@ -155,36 +169,40 @@
                 const uName = userList[index].name;
                 userList.splice(index, 1);
                 connections = connections.filter(c => c.peer !== peerId);
-                appendLog('sys', `${uName} 离开了`);
+                appendLog({ type: 'sys', text: `${uName} 已离开房间` });
                 syncToAll();
             }
         }
     }
 
+    // 房主巡检
+    setInterval(() => {
+        if (isHost && connections.length > 0) {
+            connections.forEach(conn => {
+                if (!conn.open || (conn.peerConnection && conn.peerConnection.iceConnectionState === 'disconnected')) {
+                    removeUser(conn.peer);
+                }
+            });
+        }
+    }, 3000);
+
     function syncToAll() {
         if (isHost) {
             updateUI();
-            broadcast({ 
-                type: 'LIST_UPDATE', 
-                list: userList, 
-                roomName: customRoomName 
-            });
+            broadcast({ type: 'LIST_UPDATE', list: userList, roomName: customRoomName });
         }
     }
 
     function updateUI() {
         const title = isHost ? `🏠 ${customRoomName}` : `💬 ${customRoomName}`;
         document.getElementById('room-name-display').innerText = `${title} (${userList.length}人)`;
-        
-        const listContent = userList.map(u => `<span class="user-tag">${u.name}</span>`).join('');
-        document.getElementById('online-list-box').innerHTML = `在线人员：${listContent}`;
+        const listContent = userList.map(u => `<span class="user-tag" style="background:${u.color}">${u.name}</span>`).join('');
+        document.getElementById('online-list-box').innerHTML = `在线：${listContent}`;
     }
 
     function broadcast(data, excludeConn) {
         connections.forEach(c => {
-            if (c.open && (!excludeConn || c.peer !== excludeConn.peer)) {
-                c.send(data);
-            }
+            if (c.open && (!excludeConn || c.peer !== excludeConn.peer)) c.send(data);
         });
     }
 
@@ -192,25 +210,59 @@
         const input = document.getElementById('msg-input');
         const text = input.value.trim();
         if (!text) return;
-        
-        const data = { name: myName, text: text };
-        if (isHost) {
-            broadcast(data);
-        } else {
-            if (connections[0] && connections[0].open) connections[0].send(data);
-        }
-        appendLog('me', text, myName);
+        const msgData = { 
+            type: 'text', 
+            name: myName, 
+            text: text, 
+            color: myColor,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+        };
+        if (isHost) broadcast(msgData);
+        else if (connections[0]) connections[0].send(msgData);
+        appendLog(msgData, 'me');
         input.value = '';
     }
 
-    function appendLog(type, text, name) {
+    function sendImg(input) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const msgData = { 
+                type: 'img', 
+                name: myName, 
+                img: e.target.result, 
+                color: myColor,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+            };
+            if (isHost) broadcast(msgData);
+            else if (connections[0]) connections[0].send(msgData);
+            appendLog(msgData, 'me');
+        };
+        reader.readAsDataURL(file);
+        input.value = ""; // 重置，允许重复选同一张图
+    }
+
+    function appendLog(data, side) {
         const box = document.getElementById('chat-box');
         const div = document.createElement('div');
-        div.className = `msg ${type}`;
-        if (type === 'sys') {
-            div.innerText = text;
+        
+        if (data.type === 'sys') {
+            div.className = 'msg sys';
+            div.innerText = data.text;
         } else {
-            div.innerHTML = `<div class="msg-name">${name || "未知"}</div>${text}`;
+            div.className = `msg ${side}`;
+            const content = data.type === 'text' 
+                ? `<div class="msg-content">${data.text}</div>`
+                : `<img src="${data.img}" class="msg-img" onclick="window.open(this.src)">`;
+                
+            div.innerHTML = `
+                <div class="msg-info">
+                    <b style="color:${data.color}">${data.name}</b>
+                    <span>${data.time}</span>
+                </div>
+                ${content}
+            `;
         }
         box.appendChild(div);
         box.scrollTop = box.scrollHeight;
@@ -218,5 +270,3 @@
 </script>
 </body>
 </html>
-
-
