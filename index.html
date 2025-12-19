@@ -1,115 +1,101 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P 多人临时聊天室</title>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <style>
-        :root { --primary: #007bff; --bg: #f4f7f6; }
-        body { font-family: sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; margin: 0; }
-        .container { background: white; width: 100%; max-width: 500px; padding: 20px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        #chat-box { height: 400px; border: 1px solid #eee; border-radius: 10px; overflow-y: auto; padding: 15px; margin: 15px 0; background: #fafafa; display: flex; flex-direction: column; }
-        .msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; font-size: 14px; position: relative; max-width: 85%; }
-        .msg-name { font-size: 11px; color: #888; margin-bottom: 2px; }
-        .msg.me { background: var(--primary); color: white; align-self: flex-end; }
-        .msg.peer { background: #e9e9eb; color: #333; align-self: flex-start; }
-        .msg.sys { background: transparent; color: #aaa; font-size: 12px; align-self: center; text-align: center; }
-        .input-area { display: flex; gap: 8px; }
-        input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
-        button { padding: 10px 15px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; }
-        button:hover { opacity: 0.9; }
-        .setup-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); display: flex; align-items: center; justify-content: center; z-index: 100; }
-        .setup-box { text-align: center; padding: 30px; background: white; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
-        #share-url { font-size: 12px; color: var(--primary); cursor: pointer; word-break: break-all; margin-top: 10px; display: block; }
-    </style>
-</head>
-<body>
-
-<div id="setup-layer" class="setup-overlay">
-    <div class="setup-box">
-        <h3 id="setup-title">创建或加入聊天室</h3>
-        <input type="text" id="user-name" placeholder="输入你的昵称..." style="margin-bottom: 10px; width: 200px;"><br>
-        <button onclick="startApp()">进入聊天室</button>
-    </div>
-</div>
-
-<div class="container">
-    <h3 id="room-name-display">正在初始化...</h3>
-    <span id="share-url"></span>
-    <div id="chat-box"></div>
-    <div class="input-area">
-        <input type="text" id="msg-input" placeholder="聊点什么..." onkeypress="if(event.keyCode==13) sendMsg()">
-        <button onclick="sendMsg()">发送</button>
-    </div>
-</div>
-
-<script>
+// --- 核心变量部分 ---
     let peer, connections = [], myName = "";
     let isHost = false;
     const urlParams = new URLSearchParams(window.location.search);
     const roomID = urlParams.get('room');
+    let customRoomName = urlParams.get('roomName') || "临时聊天室";
 
-    if (roomID) {
-        document.getElementById('setup-title').innerText = "加入聊天室";
-    }
+    // 自动读取上次的昵称
+    document.getElementById('user-name').value = localStorage.getItem('p2p-nickname') || "";
 
     function startApp() {
         myName = document.getElementById('user-name').value.trim() || "匿名者";
+        localStorage.setItem('p2p-nickname', myName); // 记住昵称
+
+        if (!roomID) {
+            const inputName = prompt("给你的聊天室起个名字吧：", customRoomName);
+            if (inputName) customRoomName = inputName;
+        }
         document.getElementById('setup-layer').style.display = 'none';
         initPeer();
     }
 
     function initPeer() {
-        // 如果是成员，则随机ID；如果是房主，尝试使用 roomID
-        peer = new Peer();
+        // 如果是房主，我们尝试创建一个相对固定的 ID 防止刷新就死
+        // 注意：PeerJS 官方服务器如果 ID 被占用会报错，这里简单处理
+        peer = new Peer(); 
 
         peer.on('open', (id) => {
             if (!roomID) {
-                // 房主逻辑：生成邀请链接
                 isHost = true;
-                const inviteUrl = window.location.origin + window.location.pathname + "?room=" + id;
-                document.getElementById('room-name-display').innerText = `🏠 我的聊天室`;
+                const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${id}&roomName=${encodeURIComponent(customRoomName)}`;
+                document.getElementById('room-name-display').innerText = `🏠 ${customRoomName} (1人)`;
                 document.getElementById('share-url').innerText = "点击复制邀请链接";
                 document.getElementById('share-url').onclick = () => {
                     navigator.clipboard.writeText(inviteUrl);
-                    alert("链接已复制，发给好友吧！");
+                    alert("链接已复制！");
                 };
-                appendLog('sys', `房间创建成功！ID: ${id}`);
             } else {
-                // 成员逻辑：连接房主
-                isHost = false;
-                document.getElementById('room-name-display').innerText = `💬 正在加入聊天室...`;
-                const conn = peer.connect(roomID, { metadata: { name: myName } });
-                handleConnection(conn);
+                connectToHost(roomID);
             }
         });
 
-        // 房主监听成员连入
         peer.on('connection', (conn) => {
             handleConnection(conn);
         });
     }
 
+    function connectToHost(id) {
+        isHost = false;
+        const conn = peer.connect(id, { metadata: { name: myName } });
+        handleConnection(conn);
+    }
+
     function handleConnection(conn) {
         conn.on('open', () => {
-            connections.push(conn);
-            const peerName = conn.metadata.name || "神秘人";
-            appendLog('sys', `${peerName} 进入了房间`);
-            document.getElementById('room-name-display').innerText = `💬 多人聊天模式 (${connections.length + 1}人)`;
+            if (!connections.find(c => c.peer === conn.peer)) {
+                connections.push(conn);
+            }
             
-            // 房主收到消息后转发给所有人
+            // 房主逻辑：每当有人来，计算总人数并广播
+            if (isHost) {
+                const totalCount = connections.length + 1;
+                updateUserCount(totalCount);
+                broadcast({ type: 'COUNT_UPDATE', count: totalCount });
+            }
+            
+            appendLog('sys', `${conn.metadata.name || "新朋友"} 进入了房间`);
+
             conn.on('data', (data) => {
-                if (isHost) {
-                    broadcast({ name: data.name, text: data.text }, conn);
+                // 如果收到的是人数更新指令
+                if (data.type === 'COUNT_UPDATE') {
+                    updateUserCount(data.count);
+                    return;
                 }
+                // 正常的聊天消息转发
+                if (isHost) broadcast({ name: data.name, text: data.text }, conn);
                 appendLog('peer', data.text, data.name);
             });
         });
 
         conn.on('close', () => {
-            appendLog('sys', `某位好友离开了`);
             connections = connections.filter(c => c !== conn);
+            if (isHost) {
+                const totalCount = connections.length + 1;
+                updateUserCount(totalCount);
+                broadcast({ type: 'COUNT_UPDATE', count: totalCount });
+            }
+        });
+    }
+
+    function updateUserCount(count) {
+        const title = isHost ? `🏠 ${customRoomName}` : `💬 ${customRoomName}`;
+        document.getElementById('room-name-display').innerText = `${title} (${count}人)`;
+    }
+
+    function broadcast(data, excludeConn) {
+        connections.forEach(c => {
+            if (c !== excludeConn && c.open) c.send(data);
         });
     }
 
@@ -117,37 +103,8 @@
         const input = document.getElementById('msg-input');
         const text = input.value.trim();
         if (!text) return;
-
         const data = { name: myName, text: text };
-        // 发送给所有连接的人
-        connections.forEach(c => c.send(data));
-        
+        connections.forEach(c => { if(c.open) c.send(data); });
         appendLog('me', text, myName);
         input.value = '';
     }
-
-    // 房主专用的广播功能
-    function broadcast(data, excludeConn) {
-        connections.forEach(c => {
-            if (c !== excludeConn) c.send(data);
-        });
-    }
-
-    function appendLog(type, text, name) {
-        const box = document.getElementById('chat-box');
-        const div = document.createElement('div');
-        div.className = `msg ${type}`;
-        
-        if (type === 'sys') {
-            div.innerText = text;
-        } else {
-            const nameSpan = `<div class="msg-name">${name}</div>`;
-            div.innerHTML = nameSpan + text;
-        }
-        
-        box.appendChild(div);
-        box.scrollTop = box.scrollHeight;
-    }
-</script>
-</body>
-</html>
