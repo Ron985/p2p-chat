@@ -3,17 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>罗恩聊天室</title>
+    <title>罗恩聊天室 - 满血增强版</title>
     <style>
-        /* 保持之前的 UI 样式不变 */
-        :root { --primary: #007bff; --bg: #f0f2f5; }
-        body { font-family: -apple-system, sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; margin: 0; }
-        .container { background: white; width: 100%; max-width: 600px; height: 90vh; display: flex; flex-direction: column; padding: 20px; border-radius: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.12); }
-        #chat-box { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 12px; }
-        .msg-content { padding: 10px 14px; border-radius: 15px; font-size: 14px; background: #f1f0f0; }
+        :root { --primary: #007bff; --bg: #f0f2f5; --peer-bg: #ffffff; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); display: flex; justify-content: center; height: 100vh; margin: 0; padding: 0; }
+        
+        /* 布局：侧边栏 + 主聊天区 */
+        .container { background: white; width: 100%; max-width: 900px; height: 90vh; display: flex; flex-direction: row; margin: auto; border-radius: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.12); overflow: hidden; }
+        
+        /* 侧边栏样式 */
+        .sidebar { width: 200px; background: #f8f9fa; border-right: 1px solid #eee; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 15px; font-weight: bold; font-size: 14px; border-bottom: 1px solid #eee; background: #fff; }
+        #user-list { flex: 1; overflow-y: auto; padding: 10px; list-style: none; margin: 0; }
+        #user-list li { padding: 8px 12px; border-radius: 8px; margin-bottom: 5px; font-size: 13px; background: #fff; border: 1px solid #eee; color: #555; }
+
+        /* 主区域样式 */
+        .main-chat { flex: 1; display: flex; flex-direction: column; position: relative; }
+        #status-bar { font-size: 12px; color: #856404; background: #fff3cd; padding: 8px; text-align: center; }
+        #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; background: #f0f2f5; }
+
+        /* 气泡美化 */
+        .msg { max-width: 80%; display: flex; flex-direction: column; }
         .msg.me { align-self: flex-end; }
-        .msg.me .msg-content { background: var(--primary); color: white; }
-        #status-bar { font-size: 12px; color: #856404; background: #fff3cd; padding: 8px; border-radius: 10px; margin-bottom: 10px; text-align: center; }
+        .msg.peer { align-self: flex-start; }
+        .msg-info { font-size: 11px; color: #999; margin-bottom: 4px; padding: 0 5px; }
+        .msg-content { padding: 10px 16px; border-radius: 18px; font-size: 14px; line-height: 1.5; }
+        .me .msg-content { background: var(--primary); color: white; border-bottom-right-radius: 2px; }
+        .peer .msg-content { background: var(--peer-bg); color: #333; border-bottom-left-radius: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
+        .input-area { display: flex; gap: 10px; padding: 15px; background: #fff; border-top: 1px solid #eee; }
+        #msg-input { flex: 1; padding: 12px 18px; border-radius: 25px; border: 1px solid #ddd; outline: none; }
+        button { padding: 10px 25px; border-radius: 25px; border: none; background: var(--primary); color: white; cursor: pointer; font-weight: bold; }
     </style>
 
     <script>
@@ -55,55 +75,103 @@ var e=null;try{e=new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array(
 <body>
 
 <div class="container">
-    <div id="status-bar">🚀 正在启动内嵌引擎...</div>
-    <div id="chat-box"></div>
-    <div class="input-area" style="display:flex; gap:10px; padding-top:15px; border-top:1px solid #eee;">
-        <input type="text" id="msg-input" placeholder="输入消息..." style="flex:1; padding:12px; border-radius:25px; border:1px solid #ddd; outline:none;">
-        <button onclick="sendMsg()" style="padding:10px 22px; border-radius:25px; border:none; background:var(--primary); color:white; cursor:pointer; font-weight:bold;">发送</button>
+    <div class="sidebar">
+        <div class="sidebar-header">在线成员 (<span id="user-count">0</span>)</div>
+        <ul id="user-list"></ul>
+    </div>
+
+    <div class="main-chat">
+        <div id="status-bar">🚀 正在启动罗恩聊天室...</div>
+        <div id="chat-box"></div>
+        <div class="input-area">
+            <input type="text" id="msg-input" placeholder="按回车发送消息..." onkeypress="if(event.keyCode==13) sendMsg()">
+            <button onclick="sendMsg()">发送</button>
+        </div>
     </div>
 </div>
 
 <script>
-    /* 逻辑部分：确保 APP_ID 是你最近创建的那个项目的 */
+    // ======= 基础配置 =======
     const APP_ID = "2031a372367f433580384793ed09d9bc"; 
-    const CHANNEL_NAME = "GlobalRoom";
+    
+    // 解析 URL 参数获取房间名，如果没有则默认 GlobalRoom
+    const urlParams = new URLSearchParams(window.location.search);
+    const CHANNEL_NAME = urlParams.get('room') || "GlobalRoom";
+    
+    // 弹出昵称输入框
+    const MY_NAME = prompt("欢迎来到罗恩聊天室！请输入你的昵称：") || "匿名用户";
     const USER_ID = "u_" + Math.floor(Math.random() * 1000000);
+    
     let rtm;
 
     async function init() {
         try {
-            // 使用内嵌的 AgoraRTM 实例
-            rtm = new AgoraRTM.RTM(APP_ID, USER_ID);
-            await rtm.login();
-            await rtm.subscribe(CHANNEL_NAME);
-            document.getElementById('status-bar').style.display = "none";
-            appendLog("🎉 系统：连接成功！可以开始聊天了");
-            
+            // 初始化 RTM，强制指定为北美区域以配合你的后台设置
+            rtm = new AgoraRTM.RTM(APP_ID, USER_ID, { region: 'NA' }); 
+
+            // 监听收到的消息
             rtm.addEventListener("message", (event) => {
                 const data = JSON.parse(event.message);
-                appendLog(`朋友: ${data.content}`);
+                appendLog(data, 'peer');
             });
+
+            // 登录并加入频道
+            await rtm.login();
+            await rtm.subscribe(CHANNEL_NAME);
+            
+            document.getElementById('status-bar').innerText = `✅ 已进入房间: ${CHANNEL_NAME}`;
+            setTimeout(() => document.getElementById('status-bar').style.display = "none", 3000);
+            
+            // 更新本地在线列表（显示自己）
+            updateUserList();
+            
+            appendLog({ name: "系统", content: `欢迎 ${MY_NAME} 加入 ${CHANNEL_NAME}！`, time: "" }, 'sys');
+
         } catch (err) {
-            document.getElementById('status-bar').innerText = "❌ 连接失败，请检查 App ID";
+            document.getElementById('status-bar').innerText = "❌ 连接失败，请检查 App ID 或网络";
+            console.error(err);
         }
     }
 
     async function sendMsg() {
         const input = document.getElementById('msg-input');
-        if (!input.value.trim()) return;
-        const msg = { content: input.value };
-        await rtm.publish(CHANNEL_NAME, JSON.stringify(msg));
-        appendLog(`我: ${input.value}`);
+        const text = input.value.trim();
+        if (!text) return;
+
+        const msgData = { 
+            name: MY_NAME, 
+            content: text,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+
+        await rtm.publish(CHANNEL_NAME, JSON.stringify(msgData));
+        appendLog(msgData, 'me');
         input.value = "";
     }
 
-    function appendLog(text) {
+    function appendLog(data, side) {
         const box = document.getElementById('chat-box');
         const div = document.createElement('div');
-        div.className = text.startsWith('我') ? 'msg me' : 'msg';
-        div.innerHTML = `<div class="msg-content">${text}</div>`;
+        div.className = `msg ${side}`;
+        
+        if(side === 'sys') {
+            div.style.alignSelf = 'center';
+            div.innerHTML = `<span style="font-size:12px; color:#999; background:#e9ecef; padding:2px 10px; border-radius:10px;">${data.content}</span>`;
+        } else {
+            div.innerHTML = `
+                <div class="msg-info"><b>${data.name}</b> ${data.time || ''}</div>
+                <div class="msg-content">${data.content}</div>
+            `;
+        }
+        
         box.appendChild(div);
         box.scrollTop = box.scrollHeight;
+    }
+
+    function updateUserList() {
+        const list = document.getElementById('user-list');
+        list.innerHTML = `<li>🌟 ${MY_NAME} (我)</li>`;
+        document.getElementById('user-count').innerText = "1";
     }
 
     init();
