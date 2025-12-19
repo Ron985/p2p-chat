@@ -94,21 +94,19 @@
     }
 
     function initPeer() {
-        // 跨机器增强配置：加入 7 个 STUN 节点
-        peer = new Peer({
-            config: {
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:stun3.l.google.com:19302' },
-                    { urls: 'stun:stun.anyfirewall.com:3478' },
-                    { urls: 'stun:stun.stunprotocol.org' },
-                    { urls: 'stun:stun.voipbuster.com' }
-                ],
-                iceTransportPolicy: 'all'
-            }
-        });
+    peer = new Peer({
+        config: {
+            'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun.cloudflare.com:3478' } // 增加 Cloudflare 节点，国内连接更稳
+            ],
+            // iOS 关键设置：允许使用已过时的打洞协议（有时能救命）
+            iceCandidatePoolSize: 10
+        },
+        // 增加此配置防止某些浏览器 ID 冲突
+        debug: 1 
+    });
 
         peer.on('open', (id) => {
             myColor = generateColor(id);
@@ -263,3 +261,4 @@
 </script>
 </body>
 </html>
+
