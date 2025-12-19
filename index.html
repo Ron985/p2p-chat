@@ -105,9 +105,24 @@
     }
 
     function initPeer() {
-        peer = new Peer();
-        peer.on('open', (id) => {
-            myColor = generateColor(id);
+    // 增加冰服务器（ICE Servers）配置，帮助跨网络发现对方
+    peer = new Peer({
+        config: {
+            'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun.voipbuster.com' },
+                { urls: 'stun:stun.ekiga.net' }
+            ],
+            // 强制启用可靠传输
+            sdpSemantics: 'unified-plan'
+        },
+        debug: 3 // 开启调试模式，你可以按 F12 看到详细报错
+    });
+
+    peer.on('open', (id) => {
+        myColor = generateColor(id);
             if (!roomID) {
                 isHost = true;
                 userList = [{ id: id, name: myName + " (房主)", color: myColor }];
@@ -270,3 +285,4 @@
 </script>
 </body>
 </html>
+
