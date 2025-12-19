@@ -3,262 +3,134 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P 极客聊天室 - 最终稳定版</title>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <title>企业级 P2P 聊天室 (声网驱动)</title>
+    <script src="https://download.agora.io/sdk/release/agora-rtm-sdk-2.1.10.js"></script>
     <style>
         :root { --primary: #007bff; --bg: #f0f2f5; }
-        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; margin: 0; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; margin: 0; }
         .container { background: white; width: 100%; max-width: 600px; height: 90vh; display: flex; flex-direction: column; padding: 20px; border-radius: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.12); }
-        
-        /* 状态与名单 */
-        .online-list { font-size: 12px; color: #666; background: #f8f9fa; padding: 10px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #eee; }
-        .user-tag { display: inline-block; padding: 3px 10px; border-radius: 15px; margin: 2px 4px; color: white; font-weight: 500; font-size: 11px; }
-
         #chat-box { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 12px; }
         
-        /* 聊天气泡 */
-        .msg { position: relative; max-width: 80%; display: flex; flex-direction: column; }
-        .msg-info { font-size: 11px; color: #999; margin-bottom: 3px; display: flex; gap: 8px; align-items: center; }
-        .msg-content { padding: 10px 14px; border-radius: 15px; font-size: 14px; line-height: 1.5; word-break: break-all; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        .msg-img { max-width: 200px; border-radius: 10px; margin-top: 5px; cursor: pointer; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        
+        /* 气泡样式 */
+        .msg { max-width: 80%; display: flex; flex-direction: column; }
+        .msg-info { font-size: 11px; color: #999; margin-bottom: 3px; display: flex; gap: 8px; }
+        .msg-content { padding: 10px 14px; border-radius: 15px; font-size: 14px; line-height: 1.5; word-break: break-all; }
         .msg.me { align-self: flex-end; }
-        .msg.me .msg-info { justify-content: flex-end; }
         .msg.me .msg-content { background: var(--primary); color: white; border-bottom-right-radius: 2px; }
-        
         .msg.peer { align-self: flex-start; }
         .msg.peer .msg-content { background: #f1f0f0; color: #222; border-bottom-left-radius: 2px; }
+        .msg-img { max-width: 200px; border-radius: 10px; margin-top: 5px; cursor: pointer; }
+
+        .input-area { display: flex; gap: 10px; padding-top: 15px; border-top: 1px solid #f0f0f0; }
+        input[type="text"] { flex: 1; padding: 12px; border: 1px solid #eee; border-radius: 25px; outline: none; }
+        .send-btn { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 25px; cursor: pointer; font-weight: bold; }
         
-        .msg.sys { background: transparent; color: #bbb; font-size: 11px; align-self: center; text-align: center; margin: 5px 0; }
-
-        /* 输入区 */
-        .input-area { display: flex; gap: 10px; padding-top: 15px; border-top: 1px solid #f0f0f0; align-items: center; }
-        input[type="text"] { flex: 1; padding: 12px 18px; border: 1px solid #eee; border-radius: 25px; outline: none; background: #f9f9f9; }
-        .action-btn { background: #eee; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 18px; }
-        .send-btn { background: var(--primary); color: white; border: none; padding: 10px 22px; border-radius: 25px; cursor: pointer; font-weight: bold; }
-
-        .setup-overlay { position: fixed; inset: 0; background: white; display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        #share-url { font-size: 11px; color: var(--primary); cursor: pointer; margin: 5px 0 10px; display: block; }
+        #status-bar { font-size: 12px; color: #666; margin-bottom: 10px; padding: 5px 10px; background: #fffbe6; border-radius: 5px; }
     </style>
 </head>
 <body>
 
-<div id="setup-layer" class="setup-overlay">
-    <div style="width: 280px; text-align: center;">
-        <h2 id="setup-title">P2P Chat</h2>
-        <input type="text" id="user-name" placeholder="输入昵称" style="width: 100%; margin-bottom: 15px; text-align: center; border-radius: 10px; padding: 12px; border: 1px solid #ddd;">
-        <button class="send-btn" style="width: 100%;" onclick="startApp()">进入</button>
-    </div>
-</div>
-
 <div class="container">
-    <h3 id="room-name-display" style="margin: 0;">连接中...</h3>
-    <span id="share-url"></span>
-    <div class="online-list" id="online-list-box">正在获取成员名单...</div>
+    <div id="status-bar">正在连接国内信令节点...</div>
     <div id="chat-box"></div>
     <div class="input-area">
         <input type="file" id="img-input" accept="image/*" style="display: none;" onchange="sendImg(this)">
-        <button class="action-btn" onclick="document.getElementById('img-input').click()">🖼️</button>
-        <input type="text" id="msg-input" placeholder="聊点什么..." onkeypress="if(event.keyCode==13) sendMsg()">
+        <button onclick="document.getElementById('img-input').click()" style="background:none; border:none; cursor:pointer; font-size:20px;">🖼️</button>
+        <input type="text" id="msg-input" placeholder="输入消息..." onkeypress="if(event.keyCode==13) sendMsg()">
         <button class="send-btn" onclick="sendMsg()">发送</button>
     </div>
 </div>
 
 <script>
-    let peer, connections = [], myName = "", myColor = "";
-    let isHost = false;
-    let userList = []; 
+    // --- 配置区 ---
+    const APP_ID = "19e2fc03b8f7484ca567603f0a37ea2b"; 
+    // --------------
     
     const urlParams = new URLSearchParams(window.location.search);
-    const roomID = urlParams.get('room');
-    let customRoomName = urlParams.get('roomName') || "临时聊天室";
+    const CHANNEL_NAME = urlParams.get('room') || "Lobby";
+    const MY_NAME = localStorage.getItem('p2p-nickname') || "匿名者" + Math.floor(Math.random()*100);
+    const USER_ID = Math.floor(Math.random() * 100000).toString();
+    
+    let rtmClient;
 
-    document.getElementById('user-name').value = localStorage.getItem('p2p-nickname') || "";
-    if (roomID) document.getElementById('setup-title').innerText = "加入聊天室";
-
-    function generateColor(str) {
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-        return `hsl(${Math.abs(hash) % 360}, 65%, 45%)`;
-    }
-
-    function startApp() {
-        myName = document.getElementById('user-name').value.trim() || "匿名者";
-        localStorage.setItem('p2p-nickname', myName); 
-        if (!roomID) {
-            const inputName = prompt("给房间起个名字：", customRoomName);
-            if (inputName) customRoomName = inputName;
+    async function initRTM() {
+        if(APP_ID.includes("填入")) {
+            alert("请先在代码中填入声网 App ID");
+            return;
         }
-        document.getElementById('setup-layer').style.display = 'none';
-        initPeer();
-    }
 
-    function initPeer() {
-    peer = new Peer({
-        config: {
-            'iceServers': [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun.cloudflare.com:3478' } // 增加 Cloudflare 节点，国内连接更稳
-            ],
-            // iOS 关键设置：允许使用已过时的打洞协议（有时能救命）
-            iceCandidatePoolSize: 10
-        },
-        // 增加此配置防止某些浏览器 ID 冲突
-        debug: 1 
-    });
+        const { RTM } = AgoraRTM;
+        rtmClient = new RTM(APP_ID, USER_ID);
 
-        peer.on('open', (id) => {
-            myColor = generateColor(id);
-            if (!roomID) {
-                isHost = true;
-                userList = [{ id: id, name: myName + " (房主)", color: myColor }];
-                updateUI();
-                const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
-                document.getElementById('share-url').innerText = "🔗 点击复制邀请链接";
-                document.getElementById('share-url').onclick = () => {
-                    navigator.clipboard.writeText(inviteUrl);
-                    alert("链接已复制！");
-                };
-            } else {
-                isHost = false;
-                const conn = peer.connect(roomID, { metadata: { name: myName, color: myColor } });
-                handleConnection(conn);
-            }
-        });
+        try {
+            await rtmClient.login();
+            await rtmClient.subscribe(CHANNEL_NAME);
+            document.getElementById('status-bar').innerText = `✅ 已进入房间：${CHANNEL_NAME} (用户:${MY_NAME})`;
 
-        peer.on('connection', (conn) => handleConnection(conn));
-        peer.on('error', (err) => {
-            console.error("PeerJS Error:", err);
-            if(err.type === 'peer-disconnected') appendLog({type:'sys', text:'网络不稳定，尝试重连...'});
-        });
-    }
-
-    function handleConnection(conn) {
-        conn.on('open', () => {
-            if (isHost) {
-                if (!connections.find(c => c.peer === conn.peer)) {
-                    connections.push(conn);
-                    userList.push({ id: conn.peer, name: conn.metadata.name, color: conn.metadata.color });
-                }
-                setTimeout(() => syncToAll(), 800);
-            } else {
-                connections = [conn]; 
-                setTimeout(() => conn.send({ type: 'REQ_SYNC' }), 800);
-            }
-            appendLog({ type: 'sys', text: `${conn.metadata.name || "新成员"} 已加入` });
-
-            conn.on('data', (data) => {
-                if (isHost && data.type === 'REQ_SYNC') { syncToAll(); return; }
-                if (data.type === 'LIST_UPDATE') {
-                    userList = data.list;
-                    customRoomName = data.roomName || customRoomName;
-                    updateUI();
-                    return;
-                }
-                if (isHost) broadcast(data, conn);
+            rtmClient.addEventListener("message", (event) => {
+                const data = JSON.parse(event.message);
                 appendLog(data, 'peer');
             });
 
-            conn.on('close', () => removeUser(conn.peer));
-        });
-    }
-
-    function removeUser(peerId) {
-        if (isHost) {
-            const index = userList.findIndex(u => u.id === peerId);
-            if (index !== -1) {
-                const uName = userList[index].name;
-                userList.splice(index, 1);
-                connections = connections.filter(c => c.peer !== peerId);
-                appendLog({ type: 'sys', text: `${uName} 已离开` });
-                syncToAll();
-            }
+        } catch (err) {
+            document.getElementById('status-bar').innerText = "❌ 连接失败，请检查网络或 AppID";
         }
     }
 
-    // 房主心跳巡检：每 3 秒清理无效连接
-    setInterval(() => {
-        if (isHost && connections.length > 0) {
-            connections.forEach(conn => {
-                if (!conn.open || (conn.peerConnection && conn.peerConnection.iceConnectionState === 'disconnected')) {
-                    removeUser(conn.peer);
-                }
-            });
-        }
-    }, 3000);
-
-    function syncToAll() {
-        if (isHost) {
-            updateUI();
-            broadcast({ type: 'LIST_UPDATE', list: userList, roomName: customRoomName });
-        }
-    }
-
-    function updateUI() {
-        const title = isHost ? `🏠 ${customRoomName}` : `💬 ${customRoomName}`;
-        document.getElementById('room-name-display').innerText = `${title} (${userList.length}人)`;
-        const listContent = userList.map(u => `<span class="user-tag" style="background:${u.color}">${u.name}</span>`).join('');
-        document.getElementById('online-list-box').innerHTML = `在线：${listContent}`;
-    }
-
-    function broadcast(data, excludeConn) {
-        connections.forEach(c => {
-            if (c.open && (!excludeConn || c.peer !== excludeConn.peer)) c.send(data);
-        });
-    }
-
-    function sendMsg() {
+    async function sendMsg() {
         const input = document.getElementById('msg-input');
         const text = input.value.trim();
         if (!text) return;
-        const msgData = { 
-            type: 'text', name: myName, text: text, color: myColor,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+
+        const msgData = {
+            type: 'text',
+            name: MY_NAME,
+            content: text,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
-        if (isHost) broadcast(msgData);
-        else if (connections[0]) connections[0].send(msgData);
+
+        await rtmClient.publish(CHANNEL_NAME, JSON.stringify(msgData));
         appendLog(msgData, 'me');
-        input.value = '';
+        input.value = "";
     }
 
-    function sendImg(input) {
+    async function sendImg(input) {
         const file = input.files[0];
-        if (!file || file.size > 2 * 1024 * 1024) { 
-            if(file) alert("图片太大了，请选择 2MB 以下的图片"); 
-            return; 
-        }
+        if (!file) return;
+        if (file.size > 500 * 1024) { alert("图片请控制在 500KB 以内"); return; }
+
         const reader = new FileReader();
-        reader.onload = (e) => {
-            const msgData = { 
-                type: 'img', name: myName, img: e.target.result, color: myColor,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+        reader.onload = async (e) => {
+            const msgData = {
+                type: 'img',
+                name: MY_NAME,
+                content: e.target.result,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             };
-            if (isHost) broadcast(msgData);
-            else if (connections[0]) connections[0].send(msgData);
+            await rtmClient.publish(CHANNEL_NAME, JSON.stringify(msgData));
             appendLog(msgData, 'me');
         };
         reader.readAsDataURL(file);
-        input.value = "";
     }
 
     function appendLog(data, side) {
         const box = document.getElementById('chat-box');
         const div = document.createElement('div');
-        if (data.type === 'sys') {
-            div.className = 'msg sys';
-            div.innerText = data.text;
-        } else {
-            div.className = `msg ${side}`;
-            const content = data.type === 'text' 
-                ? `<div class="msg-content">${data.text}</div>`
-                : `<img src="${data.img}" class="msg-img" onclick="window.open(this.src)">`;
-            div.innerHTML = `<div class="msg-info"><b style="color:${data.color}">${data.name}</b><span>${data.time}</span></div>${content}`;
-        }
+        div.className = `msg ${side}`;
+        
+        const content = data.type === 'text' 
+            ? `<div class="msg-content">${data.content}</div>`
+            : `<img src="${data.content}" class="msg-img" onclick="window.open(this.src)">`;
+
+        div.innerHTML = `
+            <div class="msg-info"><b>${data.name}</b> <span>${data.time}</span></div>
+            ${content}
+        `;
         box.appendChild(div);
         box.scrollTop = box.scrollHeight;
     }
+
+    initRTM();
 </script>
 </body>
 </html>
-
