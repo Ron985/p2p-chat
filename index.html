@@ -74,108 +74,125 @@ var e=null;try{e=new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array(
 </head>
 <body>
 
-<div class="container">
-    <div class="sidebar">
-        <div class="sidebar-header">在线成员 (<span id="user-count">0</span>)</div>
-        <ul id="user-list"></ul>
+<div class="container" style="max-width: 500px; height: 95vh; margin: auto; display: flex; flex-direction: column; background: #fff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+    
+    <div class="header" style="background: #fff; padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <span style="color: #999; font-size: 12px; display: block;">当前房间</span>
+            <b id="room-title" style="color: #333; font-size: 16px;">加载中...</b>
+        </div>
+        <div style="text-align: right;">
+            <span id="user-count-tag" style="background: #e1f5fe; color: #039be5; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold;">在线 1 人</span>
+            <div id="my-name-tag" style="font-size: 12px; color: #666; margin-top: 4px;"></div>
+        </div>
     </div>
 
-    <div class="main-chat">
-        <div id="status-bar">🚀 正在启动罗恩聊天室...</div>
-        <div id="chat-box"></div>
-        <div class="input-area">
-            <input type="text" id="msg-input" placeholder="按回车发送消息..." onkeypress="if(event.keyCode==13) sendMsg()">
-            <button onclick="sendMsg()">发送</button>
+    <div id="chat-box" style="flex: 1; overflow-y: auto; padding: 20px; background: #f7f9fb; display: flex; flex-direction: column; gap: 18px;">
         </div>
+
+    <div class="input-area" style="padding: 15px; background: #fff; border-top: 1px solid #eee; display: flex; gap: 10px;">
+        <input type="text" id="msg-input" placeholder="输入消息..." onkeypress="if(event.keyCode==13) sendMsg()" 
+               style="flex: 1; padding: 12px 20px; border-radius: 25px; border: 1px solid #eee; outline: none; background: #f1f3f5;">
+        <button onclick="sendMsg()" style="background: #007bff; color: white; border: none; padding: 0 20px; border-radius: 25px; font-weight: bold; cursor: pointer;">发送</button>
     </div>
 </div>
 
 <script>
     // ======= 基础配置 =======
     const APP_ID = "2031a372367f433580384793ed09d9bc"; 
-    
-    // 解析 URL 参数获取房间名，如果没有则默认 GlobalRoom
     const urlParams = new URLSearchParams(window.location.search);
-    const CHANNEL_NAME = urlParams.get('room') || "GlobalRoom";
+    const CHANNEL_NAME = urlParams.get('room') || "公共大厅";
+    const MY_UNIQUE_ID = "ID_" + Math.floor(Math.random() * 1000000);
+    const MY_NAME = prompt("请输入你的昵称：") || "神秘人";
     
-    // 弹出昵称输入框
-    const MY_NAME = prompt("欢迎来到罗恩聊天室！请输入你的昵称：") || "匿名用户";
-    const USER_ID = "u_" + Math.floor(Math.random() * 1000000);
-    
+    // 预设几种漂亮的颜色供随机分配
+    const COLORS = ['#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#009688', '#ff9800', '#795548', '#607d8b'];
+    const MY_COLOR = COLORS[Math.floor(Math.random() * COLORS.length)];
+
     let rtm;
 
     async function init() {
-        try {
-            // 初始化 RTM，强制指定为北美区域以配合你的后台设置
-            rtm = new AgoraRTM.RTM(APP_ID, USER_ID, { region: 'NA' }); 
+        document.getElementById('room-title').innerText = CHANNEL_NAME;
+        document.getElementById('my-name-tag').innerText = "我: " + MY_NAME;
 
-            // 监听收到的消息
+        try {
+            rtm = new AgoraRTM.RTM(APP_ID, MY_UNIQUE_ID, { region: 'NA' }); 
+
+            // 统一消息监听
             rtm.addEventListener("message", (event) => {
                 const data = JSON.parse(event.message);
-                appendLog(data, 'peer');
+                // 通过 uniqueId 判断是自己还是别人
+                const isMe = data.uid === MY_UNIQUE_ID;
+                appendMsg(data, isMe ? 'me' : 'peer');
             });
 
-            // 登录并加入频道
             await rtm.login();
             await rtm.subscribe(CHANNEL_NAME);
             
-            document.getElementById('status-bar').innerText = `✅ 已进入房间: ${CHANNEL_NAME}`;
-            setTimeout(() => document.getElementById('status-bar').style.display = "none", 3000);
-            
-            // 更新本地在线列表（显示自己）
-            updateUserList();
-            
-            appendLog({ name: "系统", content: `欢迎 ${MY_NAME} 加入 ${CHANNEL_NAME}！`, time: "" }, 'sys');
+            appendSysMsg(`🎉 成功连接到 ${CHANNEL_NAME}`);
 
         } catch (err) {
-            document.getElementById('status-bar').innerText = "❌ 连接失败，请检查 App ID 或网络";
-            console.error(err);
+            appendSysMsg("❌ 连接失败，请检查配置");
         }
     }
 
     async function sendMsg() {
         const input = document.getElementById('msg-input');
-        const text = input.value.trim();
-        if (!text) return;
+        const content = input.value.trim();
+        if (!content) return;
 
-        const msgData = { 
-            name: MY_NAME, 
-            content: text,
+        const msgPayload = {
+            uid: MY_UNIQUE_ID,
+            name: MY_NAME,
+            color: MY_COLOR,
+            content: content,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
 
-        await rtm.publish(CHANNEL_NAME, JSON.stringify(msgData));
-        appendLog(msgData, 'me');
+        // 发送给频道，由监听器统一渲染，解决重复问题
+        await rtm.publish(CHANNEL_NAME, JSON.stringify(msgPayload));
         input.value = "";
     }
 
-    function appendLog(data, side) {
+    function appendMsg(data, side) {
         const box = document.getElementById('chat-box');
         const div = document.createElement('div');
-        div.className = `msg ${side}`;
-        
-        if(side === 'sys') {
-            div.style.alignSelf = 'center';
-            div.innerHTML = `<span style="font-size:12px; color:#999; background:#e9ecef; padding:2px 10px; border-radius:10px;">${data.content}</span>`;
-        } else {
-            div.innerHTML = `
-                <div class="msg-info"><b>${data.name}</b> ${data.time || ''}</div>
-                <div class="msg-content">${data.content}</div>
-            `;
-        }
+        div.style.display = "flex";
+        div.style.flexDirection = "column";
+        div.style.alignItems = side === 'me' ? "flex-end" : "flex-start";
+
+        // 这里的 HTML 结构恢复了你要求的彩色昵称展示
+        div.innerHTML = `
+            <div style="font-size: 11px; margin-bottom: 4px; color: ${side === 'me' ? '#aaa' : data.color}; font-weight: bold;">
+                ${side === 'me' ? '' : data.name} <span style="color: #ccc; font-weight: normal;">${data.time}</span>
+            </div>
+            <div style="
+                max-width: 85%;
+                padding: 10px 16px;
+                border-radius: ${side === 'me' ? '18px 18px 2px 18px' : '18px 18px 18px 2px'};
+                background: ${side === 'me' ? '#007bff' : '#fff'};
+                color: ${side === 'me' ? '#fff' : '#333'};
+                font-size: 14px;
+                line-height: 1.5;
+                box-shadow: ${side === 'me' ? '0 4px 10px rgba(0,123,255,0.2)' : '0 2px 5px rgba(0,0,0,0.05)'};
+            ">
+                ${data.content}
+            </div>
+        `;
         
         box.appendChild(div);
         box.scrollTop = box.scrollHeight;
     }
 
-    function updateUserList() {
-        const list = document.getElementById('user-list');
-        list.innerHTML = `<li>🌟 ${MY_NAME} (我)</li>`;
-        document.getElementById('user-count').innerText = "1";
+    function appendSysMsg(text) {
+        const box = document.getElementById('chat-box');
+        const div = document.createElement('div');
+        div.style.textAlign = "center";
+        div.innerHTML = `<span style="font-size: 11px; color: #bbb; background: #eee; padding: 2px 10px; border-radius: 10px;">${text}</span>`;
+        box.appendChild(div);
     }
 
     init();
 </script>
 </body>
 </html>
-
