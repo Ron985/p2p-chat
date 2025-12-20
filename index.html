@@ -96,7 +96,7 @@ var e=null;try{e=new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array(
         <button onclick="sendMsg()" style="background: #007bff; color: white; border: none; padding: 0 20px; border-radius: 25px; font-weight: bold; cursor: pointer;">发送</button>
     </div>
 </div>
-
+<script>
 // ======= 核心配置与全局变量 =======
 const APP_ID = "2031a372367f433580384793ed09d9bc"; 
 const urlParams = new URLSearchParams(window.location.search);
@@ -229,5 +229,7 @@ function appendSysMsg(text) {
 }
 
 init();
+</script>	
 </body>
 </html>
+
