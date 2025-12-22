@@ -62,7 +62,14 @@
 // ======= 配置与状态 =======
 const APP_ID = "2031a372367f433580384793ed09d9bc"; 
 const urlParams = new URLSearchParams(window.location.search);
-const CHANNEL_NAME = urlParams.get('room') || "Eighth World War Rally"; 
+
+// 核心修复点 1：获取原始中文房间名用于展示
+const DISPLAY_ROOM_NAME = urlParams.get('room') || "Eighth World War Rally"; 
+
+// 核心修复点 2：将中文转换为 SDK 支持的字符（使用 Base64 编码作为后台频道名）
+// btoa 不支持 Unicode，所以先进行 URI 编码转换
+const SAFE_CHANNEL_NAME = btoa(encodeURIComponent(DISPLAY_ROOM_NAME)).replace(/[/+=]/g, "");
+
 const MY_UNIQUE_ID = "ID_" + Math.floor(Math.random() * 1000000);
 const MY_NAME = prompt("请输入你的昵称：") || "匿名用户";
 
@@ -86,19 +93,25 @@ function appendSysMsg(text) {
     box.scrollTop = box.scrollHeight;
 }
 
-function appendMsg(data, side) {
-    const box = document.getElementById('chat-box');
-    const div = document.createElement('div');
-    div.className = `msg ${side}`;
+async function sendMsg() {
+    const input = document.getElementById('msg-input');
+    const content = input.value.trim();
+    if (!content) return;
 
-    div.innerHTML = `
-        <div class="msg-info" style="color: ${data.color}; text-align: ${side==='me'?'right':'left'}">
-            ${data.name} <span style="color: #ccc; font-weight: normal;">${data.time}</span>
-        </div>
-        <div class="msg-content">${data.content}</div>
-    `;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
+    const msgPayload = {
+        uid: MY_UNIQUE_ID,
+        name: MY_NAME,
+        color: MY_COLOR,
+        content: content,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    try {
+        await rtm.publish(SAFE_CHANNEL_NAME, JSON.stringify(msgPayload));
+        input.value = "";
+    } catch (err) {
+        appendSysMsg("⚠️ 发送失败");
+    }
 }
 
 function updatePresenceUI() {
@@ -114,15 +127,16 @@ function updatePresenceUI() {
 async function sendNotice(type) {
     try {
         const notice = { type: type, uid: MY_UNIQUE_ID, name: MY_NAME, color: MY_COLOR };
-        await rtm.publish(CHANNEL_NAME, JSON.stringify(notice));
-    } catch(e) {}
+        await rtm.publish(SAFE_CHANNEL_NAME, JSON.stringify(notice));
+    } catch(e) { console.error("通知发送失败", e); }
 }
 
 async function init() {
-    document.getElementById('room-title').innerText = CHANNEL_NAME;
+    // 界面展示：依然显示中文
+    document.getElementById('room-title').innerText = DISPLAY_ROOM_NAME;
+  
     try {
         rtm = new AgoraRTM.RTM(APP_ID, MY_UNIQUE_ID, { region: 'NA' }); 
-
         rtm.addEventListener("message", (event) => {
             const data = JSON.parse(event.message);
             
@@ -155,7 +169,8 @@ async function init() {
         });
 
         await rtm.login();
-        await rtm.subscribe(CHANNEL_NAME);
+        await rtm.subscribe(SAFE_CHANNEL_NAME);
+        window.current_channel = SAFE_CHANNEL_NAME;
         
         sendNotice('JOIN_NOTICE');
         updatePresenceUI();
@@ -200,3 +215,4 @@ init();
 </script>   
 </body>
 </html>
+
