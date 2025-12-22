@@ -63,16 +63,13 @@
 const APP_ID = "2031a372367f433580384793ed09d9bc"; 
 const urlParams = new URLSearchParams(window.location.search);
 
-// 核心修复点 1：获取原始中文房间名用于展示
-const DISPLAY_ROOM_NAME = urlParams.get('room') || "Eighth World War Rally"; 
-
-// 核心修复点 2：将中文转换为 SDK 支持的字符（使用 Base64 编码作为后台频道名）
-// btoa 不支持 Unicode，所以先进行 URI 编码转换
+// 核心修复：支持中文房间名转换
+const DISPLAY_ROOM_NAME = urlParams.get('room') || "默认房间"; 
+// 将中文转为 SDK 可接受的合法字符 ID
 const SAFE_CHANNEL_NAME = btoa(encodeURIComponent(DISPLAY_ROOM_NAME)).replace(/[/+=]/g, "");
 
 const MY_UNIQUE_ID = "ID_" + Math.floor(Math.random() * 1000000);
-const MY_NAME = prompt("请输入你的昵称：") || "匿名用户";
-
+const MY_NAME = prompt("请输入你的昵称：") || "神秘人";
 const COLORS = ['#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#009688', '#ff9800', '#795548', '#607d8b'];
 const MY_COLOR = COLORS[Math.floor(Math.random() * COLORS.length)];
 
@@ -81,7 +78,7 @@ onlineUsers[MY_UNIQUE_ID] = { name: MY_NAME, color: MY_COLOR, lastSeen: Date.now
 
 let rtm;
 
-// ======= 渲染函数 (优先定义，防止报错) =======
+// ======= 工具函数 =======
 
 function appendSysMsg(text) {
     const box = document.getElementById('chat-box');
@@ -91,6 +88,104 @@ function appendSysMsg(text) {
     div.innerHTML = `<span style="font-size: 11px; color: #bbb; background: rgba(0,0,0,0.05); padding: 2px 12px; border-radius: 20px;">${text}</span>`;
     box.appendChild(div);
     box.scrollTop = box.scrollHeight;
+}
+
+function appendMsg(data, side) {
+    const box = document.getElementById('chat-box');
+    const div = document.createElement('div');
+    div.className = `msg ${side}`;
+    div.innerHTML = `
+        <div class="msg-info" style="color: ${data.color}; text-align: ${side==='me'?'right':'left'}">
+            ${data.name} <span style="color: #ccc; font-weight: normal;">${data.time}</span>
+        </div>
+        <div class="msg-content">${data.content}</div>
+    `;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+function updatePresenceUI() {
+    const users = Object.values(onlineUsers);
+    document.getElementById('user-count-tag').innerText = `在线 ${users.length} 人`;
+    const nameList = users.map(u => `<span style="color:${u.color}">${u.name}</span>`).join('、');
+    document.getElementById('my-name-tag').innerHTML = `在线：${nameList}`;
+}
+
+async function sendNotice(type) {
+    try {
+        const notice = { type: type, uid: MY_UNIQUE_ID, name: MY_NAME, color: MY_COLOR };
+        await rtm.publish(SAFE_CHANNEL_NAME, JSON.stringify(notice));
+    } catch(e) {}
+}
+
+// ======= 初始化与核心逻辑 =======
+
+async function init() {
+    document.getElementById('room-title').innerText = DISPLAY_ROOM_NAME;
+    try {
+        rtm = new AgoraRTM.RTM(APP_ID, MY_UNIQUE_ID, { region: 'NA' }); 
+
+        rtm.addEventListener("message", (event) => {
+            const data = JSON.parse(event.message);
+            
+            // 处理成员状态通知
+            if (data.type === 'JOIN_NOTICE' || data.type === 'SYNC_NOTICE') {
+                const isKnown = !!onlineUsers[data.uid];
+                onlineUsers[data.uid] = { name: data.name, color: data.color, lastSeen: Date.now() };
+                
+                // 仅全新加入时通知
+                if (!isKnown && data.type === 'JOIN_NOTICE' && data.uid !== MY_UNIQUE_ID) {
+                    appendSysMsg(`👋 ${data.name} 进入了聊天室`);
+                }
+                updatePresenceUI();
+
+                // 老成员回礼，用 SYNC 保持静默同步
+                if (data.type === 'JOIN_NOTICE' && data.uid !== MY_UNIQUE_ID) {
+                    sendNotice('SYNC_NOTICE'); 
+                }
+                return;
+            }
+
+            // 处理离线
+            if (data.type === 'LEAVE_NOTICE') {
+                if (onlineUsers[data.uid]) {
+                    const name = onlineUsers[data.uid].name;
+                    delete onlineUsers[data.uid];
+                    appendSysMsg(`🏃 ${name} 离开了聊天室`);
+                    updatePresenceUI();
+                }
+                return;
+            }
+
+            // 普通消息
+            appendMsg(data, data.uid === MY_UNIQUE_ID ? 'me' : 'peer');
+        });
+
+        await rtm.login();
+        await rtm.subscribe(SAFE_CHANNEL_NAME);
+        
+        sendNotice('JOIN_NOTICE');
+        updatePresenceUI();
+
+        // 窗口关闭监听
+        window.addEventListener('beforeunload', () => sendNotice('LEAVE_NOTICE'));
+
+        // 心跳清理（清理掉线用户）
+        setInterval(() => {
+            const now = Date.now();
+            let changed = false;
+            for (let uid in onlineUsers) {
+                if (uid !== MY_UNIQUE_ID && now - onlineUsers[uid].lastSeen > 35000) {
+                    delete onlineUsers[uid];
+                    changed = true;
+                }
+            }
+            if (changed) updatePresenceUI();
+        }, 10000);
+
+    } catch (err) {
+        appendSysMsg("❌ 连接异常：请检查网络或配置");
+    }
 }
 
 async function sendMsg() {
@@ -114,105 +209,7 @@ async function sendMsg() {
     }
 }
 
-function updatePresenceUI() {
-    const users = Object.values(onlineUsers);
-    document.getElementById('user-count-tag').innerText = `在线 ${users.length} 人`;
-    
-    const nameList = users.map(u => `<span style="color:${u.color}">${u.name}</span>`).join('、');
-    document.getElementById('my-name-tag').innerHTML = `在线：${nameList}`;
-}
-
-// ======= 核心逻辑 =======
-
-async function sendNotice(type) {
-    try {
-        const notice = { type: type, uid: MY_UNIQUE_ID, name: MY_NAME, color: MY_COLOR };
-        await rtm.publish(SAFE_CHANNEL_NAME, JSON.stringify(notice));
-    } catch(e) { console.error("通知发送失败", e); }
-}
-
-async function init() {
-    // 界面展示：依然显示中文
-    document.getElementById('room-title').innerText = DISPLAY_ROOM_NAME;
-  
-    try {
-        rtm = new AgoraRTM.RTM(APP_ID, MY_UNIQUE_ID, { region: 'NA' }); 
-        rtm.addEventListener("message", (event) => {
-            const data = JSON.parse(event.message);
-            
-            if (data.type === 'JOIN_NOTICE' || data.type === 'SYNC_NOTICE') {
-                const isKnown = !!onlineUsers[data.uid];
-                onlineUsers[data.uid] = { name: data.name, color: data.color, lastSeen: Date.now() };
-                
-                if (!isKnown && data.type === 'JOIN_NOTICE' && data.uid !== MY_UNIQUE_ID) {
-                    appendSysMsg(`👋 ${data.name} 进入了聊天室`);
-                }
-                updatePresenceUI();
-
-                if (data.type === 'JOIN_NOTICE' && data.uid !== MY_UNIQUE_ID) {
-                    sendNotice('SYNC_NOTICE'); 
-                }
-                return;
-            }
-
-            if (data.type === 'LEAVE_NOTICE') {
-                if (onlineUsers[data.uid]) {
-                    const name = onlineUsers[data.uid].name;
-                    delete onlineUsers[data.uid];
-                    appendSysMsg(`🏃 ${name} 离开了聊天室`);
-                    updatePresenceUI();
-                }
-                return;
-            }
-
-            appendMsg(data, data.uid === MY_UNIQUE_ID ? 'me' : 'peer');
-        });
-
-        await rtm.login();
-        await rtm.subscribe(SAFE_CHANNEL_NAME);
-        window.current_channel = SAFE_CHANNEL_NAME;
-        
-        sendNotice('JOIN_NOTICE');
-        updatePresenceUI();
-
-        window.addEventListener('beforeunload', () => sendNotice('LEAVE_NOTICE'));
-
-        setInterval(() => {
-            const now = Date.now();
-            let changed = false;
-            for (let uid in onlineUsers) {
-                if (uid !== MY_UNIQUE_ID && now - onlineUsers[uid].lastSeen > 35000) {
-                    delete onlineUsers[uid];
-                    changed = true;
-                }
-            }
-            if (changed) updatePresenceUI();
-        }, 10000);
-
-    } catch (err) {
-        appendSysMsg("❌ 连接异常");
-    }
-}
-
-async function sendMsg() {
-    const input = document.getElementById('msg-input');
-    const content = input.value.trim();
-    if (!content) return;
-
-    const msgPayload = {
-        uid: MY_UNIQUE_ID,
-        name: MY_NAME,
-        color: MY_COLOR,
-        content: content,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    await rtm.publish(CHANNEL_NAME, JSON.stringify(msgPayload));
-    input.value = "";
-}
-
 init();
 </script>   
 </body>
 </html>
-
