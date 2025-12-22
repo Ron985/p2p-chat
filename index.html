@@ -180,17 +180,19 @@
         const APP_ID = "2031a372367f433580384793ed09d9bc";
         const urlParams = new URLSearchParams(window.location.search);
 
-        // ======= 核心修复：更安全的房间名转换 =======
+        // ======= 核心修复：SHA-256 固定长度哈希算法 =======
         const DISPLAY_ROOM_NAME = urlParams.get('room') || "默认房间";
 
-        // 使用 Hex 编码替代 Base64，确保 100% 兼容 API 字符限制
-        function toHexString(str) {
-            return Array.from(encodeURIComponent(str)).map(c =>
-                c.charCodeAt(0).toString(16)
-            ).join('').substring(0, 64); // 截取前64位，防止超长
+        // 这是一个极其精简的哈希算法，将任意中文转换为固定长度的合法英文数字字符串
+        async function hashRoomName(name) {
+            const msgUint8 = new TextEncoder().encode(name);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 32);
         }
 
-        const SAFE_CHANNEL_NAME = "room_" + toHexString(DISPLAY_ROOM_NAME);
+        // 因为哈希是异步的，我们需要微调初始化逻辑
+        let SAFE_CHANNEL_NAME = "";
 
         const MY_UNIQUE_ID = "ID_" + Math.floor(Math.random() * 1000000);
         const MY_NAME = prompt("请输入你的昵称：") || "神秘人";
@@ -244,6 +246,11 @@
         // ======= 初始化与核心逻辑 =======
         async function init() {
             document.getElementById('room-title').innerText = DISPLAY_ROOM_NAME;
+
+            // 1. 先生成合法的房间 ID
+            SAFE_CHANNEL_NAME = "r_" + await hashRoomName(DISPLAY_ROOM_NAME);
+            console.log("加密后的安全频道名:", SAFE_CHANNEL_NAME);
+
             try {
                 rtm = new AgoraRTM.RTM(APP_ID, MY_UNIQUE_ID, {
                     region: 'NA'
@@ -259,15 +266,12 @@
                             color: data.color,
                             lastSeen: Date.now()
                         };
-
                         if (!isKnown && data.type === 'JOIN_NOTICE' && data.uid !== MY_UNIQUE_ID) {
                             appendSysMsg(`👋 ${data.name} 进入了聊天室`);
                         }
                         updatePresenceUI();
-
-                        if (data.type === 'JOIN_NOTICE' && data.uid !== MY_UNIQUE_ID) {
-                            sendNotice('SYNC_NOTICE');
-                        }
+                        if (data.type === 'JOIN_NOTICE' && data.uid !== MY_UNIQUE_ID) sendNotice(
+                            'SYNC_NOTICE');
                         return;
                     }
 
@@ -286,7 +290,7 @@
 
                 await rtm.login();
 
-                // 使用十六进制的安全名称进行订阅
+                // 2. 使用生成的固定长度 ID 订阅
                 await rtm.subscribe(SAFE_CHANNEL_NAME);
 
                 sendNotice('JOIN_NOTICE');
@@ -308,12 +312,13 @@
 
             } catch (err) {
                 console.error("初始化失败:", err);
-                appendSysMsg("❌ 连接失败：房间名格式不兼容");
+                appendSysMsg("❌ 连接失败：频道名转换错误");
             }
         }
 
-        // 确保这两个发送函数也使用 SAFE_CHANNEL_NAME
+        // 发送函数保持不变，它们会自动使用上面生成的 SAFE_CHANNEL_NAME
         async function sendNotice(type) {
+            if (!SAFE_CHANNEL_NAME) return;
             try {
                 const notice = {
                     type: type,
@@ -328,7 +333,7 @@
         async function sendMsg() {
             const input = document.getElementById('msg-input');
             const content = input.value.trim();
-            if (!content) return;
+            if (!content || !SAFE_CHANNEL_NAME) return;
 
             const msgPayload = {
                 uid: MY_UNIQUE_ID,
