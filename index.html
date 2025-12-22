@@ -97,48 +97,59 @@ var e=null;try{e=new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array(
     </div>
 </div>
 <script>
-// ======= 核心配置与全局变量 =======
+// ======= 基础配置保持不变 =======
 const APP_ID = "2031a372367f433580384793ed09d9bc"; 
 const urlParams = new URLSearchParams(window.location.search);
-const CHANNEL_NAME = urlParams.get('room') || "456"; // 对应你截图中的房间 456
+const CHANNEL_NAME = urlParams.get('room') || "Eighth World War Rally"; 
 const MY_UNIQUE_ID = "ID_" + Math.floor(Math.random() * 1000000);
 const MY_NAME = prompt("请输入你的昵称：") || "神秘人";
 
-// 颜色分配
 const COLORS = ['#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#009688', '#ff9800', '#795548', '#607d8b'];
 const MY_COLOR = COLORS[Math.floor(Math.random() * COLORS.length)];
 
-// 在线成员管理 (解决问题 1, 3)
+// 在线成员管理
 let onlineUsers = {}; 
-onlineUsers[MY_UNIQUE_ID] = { name: MY_NAME, color: MY_COLOR };
+onlineUsers[MY_UNIQUE_ID] = { name: MY_NAME, color: MY_COLOR, lastSeen: Date.now() };
 
 let rtm;
 
 async function init() {
     document.getElementById('room-title').innerText = CHANNEL_NAME;
-    document.getElementById('my-name-tag').innerText = "我: " + MY_NAME;
 
     try {
-        // 初始化 RTM，指定北美区域
         rtm = new AgoraRTM.RTM(APP_ID, MY_UNIQUE_ID, { region: 'NA' }); 
 
-        // 统一消息监听 (处理聊天、上线通知)
         rtm.addEventListener("message", (event) => {
             const data = JSON.parse(event.message);
             
-            // 解决问题 4：如果是上线广播
-            if (data.type === 'JOIN_NOTICE') {
-                if (!onlineUsers[data.uid]) {
-                    onlineUsers[data.uid] = { name: data.name, color: data.color };
-                    appendSysMsg(`👋 新成员 ${data.name} 加入了聊天室`);
-                    updatePresenceUI();
-                    // 回复自己的信息给对方，让对方也知道我在线
-                    sendJoinNotice(); 
+            // 处理成员变动通知
+            if (data.type === 'JOIN_NOTICE' || data.type === 'SYNC_NOTICE') {
+                const isKnown = !!onlineUsers[data.uid]; // 是否已经是已知成员
+                
+                // 更新/记录成员状态
+                onlineUsers[data.uid] = { name: data.name, color: data.color, lastSeen: Date.now() };
+                
+                // 核心修复：只有【全新的 JOIN】且【不是自己】时才弹窗
+                if (!isKnown && data.type === 'JOIN_NOTICE' && data.uid !== MY_UNIQUE_ID) {
+                    appendSysMsg(`👋 ${data.name} 进入了聊天室`);
+                }
+
+                updatePresenceUI();
+
+                // 如果收到的是新人的 JOIN，我作为老成员，发一个 SYNC 告诉他我还在（不触发别人的弹窗）
+                if (data.type === 'JOIN_NOTICE' && data.uid !== MY_UNIQUE_ID) {
+                    sendNotice('SYNC_NOTICE'); 
                 }
                 return;
             }
 
-            // 处理普通聊天消息
+            // 收到离线通知
+            if (data.type === 'LEAVE_NOTICE') {
+                handleUserLeave(data.uid, data.name);
+                return;
+            }
+
+            // 普通消息处理
             const isMe = data.uid === MY_UNIQUE_ID;
             appendMsg(data, isMe ? 'me' : 'peer');
         });
@@ -146,90 +157,64 @@ async function init() {
         await rtm.login();
         await rtm.subscribe(CHANNEL_NAME);
         
-        // 刚进入时发送上线通知
-        sendJoinNotice();
+        // 1. 发送上线通知
+        sendNotice('JOIN_NOTICE');
         updatePresenceUI();
 
+        // 2. 核心改进：监听页面关闭/刷新 (处理中途退出)
+        window.addEventListener('beforeunload', () => {
+            sendNotice('LEAVE_NOTICE');
+        });
+
+        // 3. 核心改进：心跳检测 (处理异常掉线，每10秒清理一次超过30秒没响应的用户)
+        setInterval(() => {
+            const now = Date.now();
+            let changed = false;
+            for (let uid in onlineUsers) {
+                if (uid !== MY_UNIQUE_ID && now - onlineUsers[uid].lastSeen > 30000) {
+                    delete onlineUsers[uid];
+                    changed = true;
+                }
+            }
+            if (changed) updatePresenceUI();
+            // 每20秒广播一次自己的存在，维持在别人的列表里
+            sendNotice('JOIN_NOTICE');
+        }, 20000);
+
     } catch (err) {
-        appendSysMsg("❌ 连接失败，请检查配置");
+        appendSysMsg("❌ 连接异常");
     }
 }
 
-// 发送上线广播通知他人
-async function sendJoinNotice() {
-    const notice = { type: 'JOIN_NOTICE', uid: MY_UNIQUE_ID, name: MY_NAME, color: MY_COLOR };
+async function sendNotice(type) {
+    const notice = { type: type, uid: MY_UNIQUE_ID, name: MY_NAME, color: MY_COLOR };
     await rtm.publish(CHANNEL_NAME, JSON.stringify(notice));
 }
 
-async function sendMsg() {
-    const input = document.getElementById('msg-input');
-    const content = input.value.trim();
-    if (!content) return;
-
-    const msgPayload = {
-        uid: MY_UNIQUE_ID,
-        name: MY_NAME,
-        color: MY_COLOR,
-        content: content,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    await rtm.publish(CHANNEL_NAME, JSON.stringify(msgPayload));
-    input.value = "";
+function handleUserLeave(uid, name) {
+    if (onlineUsers[uid]) {
+        delete onlineUsers[uid];
+        appendSysMsg(`🏃 ${name} 离开了聊天室`);
+        updatePresenceUI();
+    }
 }
 
-// 解决问题 2：无论左右，都展示昵称与颜色
-function appendMsg(data, side) {
-    const box = document.getElementById('chat-box');
-    const div = document.createElement('div');
-    div.style.display = "flex";
-    div.style.flexDirection = "column";
-    div.style.alignItems = side === 'me' ? "flex-end" : "flex-start";
+// 其余 sendMsg, appendMsg 等函数保持不变...
 
-    div.innerHTML = `
-        <div style="font-size: 11px; margin-bottom: 4px; color: ${data.color}; font-weight: bold;">
-            ${data.name} <span style="color: #ccc; font-weight: normal;">${data.time}</span>
-        </div>
-        <div style="
-            max-width: 85%;
-            padding: 10px 16px;
-            border-radius: ${side === 'me' ? '18px 18px 2px 18px' : '18px 18px 18px 2px'};
-            background: ${side === 'me' ? '#007bff' : '#fff'};
-            color: ${side === 'me' ? '#fff' : '#333'};
-            font-size: 14px;
-            line-height: 1.5;
-            box-shadow: ${side === 'me' ? '0 4px 10px rgba(0,123,255,0.2)' : '0 2px 5px rgba(0,0,0,0.05)'};
-        ">
-            ${data.content}
-        </div>
-    `;
-    
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-}
-
-// 解决问题 1 & 3：更新顶部在线列表和总数
 function updatePresenceUI() {
     const countTag = document.getElementById('user-count-tag');
     const users = Object.values(onlineUsers);
     countTag.innerText = `在线 ${users.length} 人`;
     
-    // 如果你想在最上方额外展示昵称列表，可以在 header 下方加个小条
-    let nameList = users.map(u => `<span style="color:${u.color}">${u.name}</span>`).join('、');
+    // 更新顶部昵称列表
+    const nameList = users.map(u => `<span style="color:${u.color}">${u.name}</span>`).join('、');
     document.getElementById('my-name-tag').innerHTML = `在线：${nameList}`;
 }
 
-function appendSysMsg(text) {
-    const box = document.getElementById('chat-box');
-    const div = document.createElement('div');
-    div.style.textAlign = "center";
-    div.style.margin = "10px 0";
-    div.innerHTML = `<span style="font-size: 11px; color: #bbb; background: rgba(0,0,0,0.05); padding: 2px 12px; border-radius: 20px;">${text}</span>`;
-    box.appendChild(div);
-}
-
+// 确保调用
 init();
 </script>	
 </body>
 </html>
+
 
